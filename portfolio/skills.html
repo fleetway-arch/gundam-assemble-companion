@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skills - Portfolio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body class="page-skills" translate="yes">
+    <div class="page-bg" aria-hidden="true"></div>
+    <header class="site-header">
+      <div class="site-brand">
+        <span class="site-kicker">Portfolio</span>
+        <a href="index.html" class="site-title">Angelique Oluwabusayomi</a>
+      </div>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="index.html" class="nav-link">Projects</a>
+        <a href="skills.html" class="nav-link" aria-current="page">Skills</a>
+        <a href="experience.html" class="nav-link">Experience</a>
+        <a href="about.html" class="nav-link">About</a>
+      </nav>
+    </header>
+
+    <main class="page-shell">
+      <section class="hero-card hero-card-tight" data-reveal>
+        <div class="hero-copy">
+          <p class="eyebrow">Skills snapshot</p>
+          <h1>
+            Balanced across backend systems, product thinking, and delivery.
+          </h1>
+          <p class="hero-text">
+            The focus is on the skills that show up in real projects: readable
+            code, data handling, responsive UI, and dependable collaboration.
+          </p>
+        </div>
+        <div class="hero-panel hero-panel-inline">
+          <div class="stat-card stat-card-small">
+            <span class="stat-value">Go</span>
+            <span class="stat-label">primary language</span>
+          </div>
+          <div class="stat-card stat-card-small">
+            <span class="stat-value">SQL</span>
+            <span class="stat-label">data design</span>
+          </div>
+          <div class="stat-card stat-card-small">
+            <span class="stat-value">UI</span>
+            <span class="stat-label">responsive layouts</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-section" data-reveal>
+        <div class="section-heading">
+          <p class="eyebrow">Core strengths</p>
+          <h2>Skills organized by what they help me ship.</h2>
+          <p>Expand each card to see the tools and practices behind it.</p>
+        </div>
+
+        <div class="skills-grid">
+          <details class="skill-card" open>
+            <summary>
+              <span class="skill-icon">⚙️</span>
+              <span>
+                <strong>Backend development</strong>
+                <small>Servers, APIs, and application logic</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>Go</li>
+              <li>REST APIs</li>
+              <li>Server architecture</li>
+              <li>Concurrency basics</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Strong</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 88%"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="skill-card">
+            <summary>
+              <span class="skill-icon">🗄️</span>
+              <span>
+                <strong>Databases</strong>
+                <small>Storage, querying, and structure</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>SQL</li>
+              <li>Schema design</li>
+              <li>Query optimization</li>
+              <li>Data modeling</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Strong</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 84%"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="skill-card">
+            <summary>
+              <span class="skill-icon">🎨</span>
+              <span>
+                <strong>Frontend development</strong>
+                <small>Interfaces that stay readable on every screen</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>HTML and CSS</li>
+              <li>JavaScript</li>
+              <li>Responsive design</li>
+              <li>Component structure</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Solid</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 78%"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="skill-card">
+            <summary>
+              <span class="skill-icon">🛠️</span>
+              <span>
+                <strong>Tools and workflows</strong>
+                <small>Reliable development habits and delivery</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>Git</li>
+              <li>Linux</li>
+              <li>Docker</li>
+              <li>Testing habits</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Solid</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 74%"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="skill-card">
+            <summary>
+              <span class="skill-icon">👥</span>
+              <span>
+                <strong>Team collaboration</strong>
+                <small>Communication, feedback, and shared goals</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>Code reviews</li>
+              <li>Agile teamwork</li>
+              <li>Clear communication</li>
+              <li>Pair problem solving</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Strong</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 90%"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="skill-card">
+            <summary>
+              <span class="skill-icon">🧠</span>
+              <span>
+                <strong>Problem solving</strong>
+                <small>Debugging, planning, and trade-off thinking</small>
+              </span>
+            </summary>
+            <ul class="skill-list">
+              <li>Algorithmic thinking</li>
+              <li>Debugging</li>
+              <li>System design</li>
+              <li>Performance tuning</li>
+            </ul>
+            <div class="meter">
+              <div class="meter-row">
+                <span>Confidence</span>
+                <span>Strong</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="--value: 82%"></div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="summary-box">
+          <p>
+            I build with a backend-first mindset, but I care just as much about
+            making the result easy to understand, easy to use, and easy to
+            maintain.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
