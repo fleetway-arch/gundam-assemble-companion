@@ -13,7 +13,11 @@ import (
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
-		addr = ":8080"
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		addr = ":" + port
 	}
 	databasePath := os.Getenv("DATABASE_PATH")
 	if databasePath == "" {
