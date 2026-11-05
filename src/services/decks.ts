@@ -1,4 +1,5 @@
 import type { SquadDeck } from '@/types/tactics';
+import { API_BASE } from './api';
 
 // --- Deck repository ---------------------------------------------------------
 // All deck data access goes through this interface. A Go REST API will replace
@@ -15,8 +16,6 @@ export interface DeckRepository {
 }
 
 // --- API implementation ------------------------------------------------------
-
-const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

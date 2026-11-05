@@ -1,10 +1,9 @@
 import type { TacticsCard } from '@/types/tactics';
+import { API_BASE } from './api';
 
 export interface TacticsRepository {
   listCards(): Promise<TacticsCard[]>;
 }
-
-const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 
 export class ApiTacticsRepository implements TacticsRepository {
   async listCards(): Promise<TacticsCard[]> {
