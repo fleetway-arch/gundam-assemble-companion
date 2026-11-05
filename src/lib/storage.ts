@@ -1,4 +1,5 @@
 import type { Unit, Squad } from '@/types/units';
+import { API_BASE } from '@/services/api';
 
 export type BackendMode = 'api';
 
@@ -9,8 +10,6 @@ interface Repo {
   saveSquad(squad: Squad): Promise<Squad>;
   deleteSquad(id: string): Promise<void>;
 }
-
-const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
