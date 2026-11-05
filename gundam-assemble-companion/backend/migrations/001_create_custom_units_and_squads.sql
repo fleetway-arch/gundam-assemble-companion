@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS units (
+  id TEXT PRIMARY KEY NOT NULL,
+  unit TEXT NOT NULL CHECK (json_valid(unit)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS squads (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
+  target_size INTEGER NOT NULL DEFAULT 3 CHECK (target_size IN (3, 5)),
+  members TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(members)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS squad_decks (
+  squad_id TEXT PRIMARY KEY NOT NULL,
+  phases INTEGER NOT NULL DEFAULT 2 CHECK (phases BETWEEN 2 AND 4),
+  card_ids TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(card_ids)),
+  card_unit_links TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(card_unit_links)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

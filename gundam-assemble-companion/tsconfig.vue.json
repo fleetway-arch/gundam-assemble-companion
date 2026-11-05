@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "types": ["vite/client"]
+  },
+  "include": [
+    "src/main.ts",
+    "src/App.vue",
+    "src/vue.d.ts",
+    "src/types/**/*.ts",
+    "src/services/**/*.ts",
+    "src/data/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/lib/storage.ts"
+  ]
+}
