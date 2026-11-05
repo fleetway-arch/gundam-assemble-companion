@@ -48,5 +48,7 @@ export interface DeckValidation {
 
 // Tactics decks always contain exactly nine cards.
 export function requiredDeckSize(phases: number): number {
+  // Keep the phase input for future rules while all supported formats use nine cards.
+  void phases;
   return 9;
 }
