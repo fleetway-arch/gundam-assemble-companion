@@ -1,5 +1,6 @@
 import type { SquadDeck } from '@/types/tactics';
 import { API_BASE } from './api';
+import { clearAuthSession, getAuthToken } from './auth';
 
 // --- Deck repository ---------------------------------------------------------
 // All deck data access goes through this interface. A Go REST API will replace
@@ -18,10 +19,16 @@ export interface DeckRepository {
 // --- API implementation ------------------------------------------------------
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
+  if (response.status === 401) clearAuthSession();
   if (!response.ok) {
     let message = `Request failed (${response.status}).`;
     try {

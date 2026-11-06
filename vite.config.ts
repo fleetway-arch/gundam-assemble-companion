@@ -6,6 +6,10 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
   plugins: [vue()],
   server: {
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
     proxy: {
       '/api': 'http://localhost:8080',
     },

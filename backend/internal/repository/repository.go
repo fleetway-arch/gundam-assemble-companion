@@ -2,12 +2,15 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
+	"time"
 
 	"gundam-assemble-companion/backend/internal/model"
 	"gundam-assemble-companion/backend/migrations"
@@ -18,13 +21,19 @@ type Repository interface {
 	Close() error
 	ListUnits(context.Context) ([]model.Unit, error)
 	ListTacticsCards(context.Context) ([]model.TacticsCard, error)
-	ListSquads(context.Context) ([]model.Squad, error)
-	GetSquad(context.Context, string) (*model.Squad, error)
-	UpsertSquad(context.Context, model.Squad) (model.Squad, error)
-	DeleteSquad(context.Context, string) error
-	GetSquadDeck(context.Context, string) (*model.SquadDeck, error)
-	UpsertSquadDeck(context.Context, model.SquadDeck) (model.SquadDeck, error)
+	ListSquads(context.Context, string) ([]model.Squad, error)
+	GetSquad(context.Context, string, string) (*model.Squad, error)
+	UpsertSquad(context.Context, model.Squad, string) (model.Squad, error)
+	DeleteSquad(context.Context, string, string) error
+	GetSquadDeck(context.Context, string, string) (*model.SquadDeck, error)
+	UpsertSquadDeck(context.Context, model.SquadDeck, string) (model.SquadDeck, error)
+	CreateUser(context.Context, model.User, string) error
+	FindUserByLogin(context.Context, string) (model.User, string, error)
+	CreateSession(context.Context, string, string, time.Time) error
+	FindUserBySession(context.Context, string) (model.User, error)
 }
+
+var ErrUserExists = errors.New("user already exists")
 
 type SQLite struct {
 	db *sql.DB
@@ -105,8 +114,8 @@ func (r *SQLite) ListTacticsCards(ctx context.Context) ([]model.TacticsCard, err
 	return cards, rows.Err()
 }
 
-func (r *SQLite) ListSquads(ctx context.Context) ([]model.Squad, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, target_size, members FROM squads ORDER BY created_at, id`)
+func (r *SQLite) ListSquads(ctx context.Context, userID string) ([]model.Squad, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, target_size, members FROM squads WHERE user_id = ? ORDER BY created_at, id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,11 +136,11 @@ func (r *SQLite) ListSquads(ctx context.Context) ([]model.Squad, error) {
 	return squads, rows.Err()
 }
 
-func (r *SQLite) GetSquad(ctx context.Context, id string) (*model.Squad, error) {
+func (r *SQLite) GetSquad(ctx context.Context, id, userID string) (*model.Squad, error) {
 	var squad model.Squad
 	var members string
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, target_size, members FROM squads WHERE id = ?`, id,
+		`SELECT id, name, target_size, members FROM squads WHERE id = ? AND user_id = ?`, id, userID,
 	).Scan(&squad.ID, &squad.Name, &squad.TargetSize, &members)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -145,38 +154,39 @@ func (r *SQLite) GetSquad(ctx context.Context, id string) (*model.Squad, error) 
 	return &squad, nil
 }
 
-func (r *SQLite) UpsertSquad(ctx context.Context, squad model.Squad) (model.Squad, error) {
+func (r *SQLite) UpsertSquad(ctx context.Context, squad model.Squad, userID string) (model.Squad, error) {
 	members, err := json.Marshal(squad.Members)
 	if err != nil {
 		return model.Squad{}, err
 	}
 	_, err = r.db.ExecContext(ctx, `
-		INSERT INTO squads (id, name, target_size, members) VALUES (?, ?, ?, ?)
+		INSERT INTO squads (id, user_id, name, target_size, members) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
+			user_id = excluded.user_id,
 			name = excluded.name,
 			target_size = excluded.target_size,
 			members = excluded.members,
 			updated_at = CURRENT_TIMESTAMP`,
-		squad.ID, squad.Name, squad.TargetSize, members)
+		squad.ID, userID, squad.Name, squad.TargetSize, members)
 	return squad, err
 }
 
-func (r *SQLite) DeleteSquad(ctx context.Context, id string) error {
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM squad_decks WHERE squad_id = ?`, id); err != nil {
+func (r *SQLite) DeleteSquad(ctx context.Context, id, userID string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM squad_decks WHERE squad_id IN (SELECT id FROM squads WHERE id = ? AND user_id = ?)`, id, userID); err != nil {
 		return err
 	}
-	result, err := r.db.ExecContext(ctx, `DELETE FROM squads WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM squads WHERE id = ? AND user_id = ?`, id, userID)
 	if err != nil {
 		return err
 	}
 	return requireAffected(result)
 }
 
-func (r *SQLite) GetSquadDeck(ctx context.Context, squadID string) (*model.SquadDeck, error) {
+func (r *SQLite) GetSquadDeck(ctx context.Context, squadID, userID string) (*model.SquadDeck, error) {
 	var deck model.SquadDeck
 	var cardIDs, cardUnitLinks string
 	err := r.db.QueryRowContext(ctx,
-		`SELECT phases, card_ids, card_unit_links FROM squad_decks WHERE squad_id = ?`, squadID,
+		`SELECT phases, card_ids, card_unit_links FROM squad_decks WHERE squad_id IN (SELECT id FROM squads WHERE id = ? AND user_id = ?)`, squadID, userID,
 	).Scan(&deck.Phases, &cardIDs, &cardUnitLinks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -194,25 +204,68 @@ func (r *SQLite) GetSquadDeck(ctx context.Context, squadID string) (*model.Squad
 	return &deck, nil
 }
 
-func (r *SQLite) UpsertSquadDeck(ctx context.Context, deck model.SquadDeck) (model.SquadDeck, error) {
+func (r *SQLite) UpsertSquadDeck(ctx context.Context, deck model.SquadDeck, userID string) (model.SquadDeck, error) {
 	cardIDs, err := json.Marshal(deck.CardIDs)
 	if err != nil {
 		return model.SquadDeck{}, err
 	}
+
 	cardUnitLinks, err := json.Marshal(deck.CardUnitLinks)
 	if err != nil {
 		return model.SquadDeck{}, err
 	}
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO squad_decks (squad_id, phases, card_ids, card_unit_links)
-		VALUES (?, ?, ?, ?)
+		SELECT ?, ?, ?, ?
+		WHERE EXISTS (SELECT 1 FROM squads WHERE id = ? AND user_id = ?)
 		ON CONFLICT(squad_id) DO UPDATE SET
 			phases = excluded.phases,
 			card_ids = excluded.card_ids,
 			card_unit_links = excluded.card_unit_links,
 			updated_at = CURRENT_TIMESTAMP`,
-		deck.SquadID, deck.Phases, cardIDs, cardUnitLinks)
+		deck.SquadID, deck.Phases, cardIDs, cardUnitLinks, deck.SquadID, userID)
 	return deck, err
+}
+
+func (r *SQLite) CreateUser(ctx context.Context, user model.User, passwordHash string) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)`,
+		user.ID, user.Username, user.Email, passwordHash)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return ErrUserExists
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *SQLite) FindUserByLogin(ctx context.Context, login string) (model.User, string, error) {
+	var user model.User
+	var passwordHash string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, username, email, password_hash FROM users WHERE username = ? OR email = ?`,
+		login, login).Scan(&user.ID, &user.Username, &user.Email, &passwordHash)
+	return user, passwordHash, err
+}
+
+func (r *SQLite) CreateSession(ctx context.Context, token string, userID string, expiresAt time.Time) error {
+	tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(token)))
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)`,
+		tokenHash, userID, expiresAt.UTC().Format(time.RFC3339))
+	return err
+}
+
+func (r *SQLite) FindUserBySession(ctx context.Context, token string) (model.User, error) {
+	tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(token)))
+	var user model.User
+	err := r.db.QueryRowContext(ctx, `
+		SELECT u.id, u.username, u.email
+		FROM sessions s JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP`,
+		tokenHash).Scan(&user.ID, &user.Username, &user.Email)
+	return user, err
 }
 
 func requireAffected(result sql.Result) error {

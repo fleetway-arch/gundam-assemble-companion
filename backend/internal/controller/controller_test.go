@@ -2,8 +2,10 @@ package controller_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -31,12 +33,16 @@ func setupControllerTest(t *testing.T) (*controller.Controller, *repository.SQLi
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.Exec(`
+		INSERT OR REPLACE INTO users (id, username, email, password_hash) VALUES
+		('test-user', 'test-user', 'test@example.com', 'unused');
+		INSERT OR REPLACE INTO sessions (token_hash, user_id, expires_at) VALUES
+		(?, 'test-user', '2099-01-01T00:00:00Z');
 		INSERT OR REPLACE INTO units (id, unit) VALUES
 		('unit-in', '{"cardTags":["White Devil"],"signatureTitle":"Old Title","traits":[{"label":"Faction","value":"Earth Federation"}]}'),
 		('unit-out', '{"cardTags":["Outside"],"signatureTitle":"Outside","traits":[]}');
-		INSERT OR REPLACE INTO squads (id, name, target_size, members) VALUES
-		('squad-test', 'Test Squad', 3, '["unit-in"]');
-	`)
+		INSERT OR REPLACE INTO squads (id, user_id, name, target_size, members) VALUES
+		('squad-test', 'test-user', 'Test Squad', 3, '["unit-in"]');
+	`, fmt.Sprintf("%x", sha256.Sum256([]byte("test-token"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +68,9 @@ func deckRequest(t *testing.T, deck model.SquadDeck) *http.Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return httptest.NewRequest(http.MethodPut, "/api/squads/squad-test/deck", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPut, "/api/squads/squad-test/deck", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer test-token")
+	return request
 }
 
 func TestSquadDeckHandlerValidDeckSaves(t *testing.T) {
@@ -77,7 +85,7 @@ func TestSquadDeckHandlerValidDeckSaves(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("got status %d, body %s", response.Code, response.Body.String())
 	}
-	saved, err := repo.GetSquadDeck(t.Context(), "squad-test")
+	saved, err := repo.GetSquadDeck(t.Context(), "squad-test", "test-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +114,7 @@ func TestSquadDeckHandlerInvalidDeckDoesNotSave(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("got status %d, body %s", response.Code, response.Body.String())
 	}
-	saved, err := repo.GetSquadDeck(t.Context(), "squad-test")
+	saved, err := repo.GetSquadDeck(t.Context(), "squad-test", "test-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,5 +137,58 @@ func TestSquadDeckHandlerRejectsUnitOutsideSquad(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte("LINK_UNIT_NOT_IN_SQUAD")) {
 		t.Fatalf("response does not identify link failure: %s", response.Body.String())
+	}
+}
+
+func TestAuthSignupAndLogin(t *testing.T) {
+	controller, _ := setupControllerTest(t)
+
+	signup := httptest.NewRequest(http.MethodPost, "/api/auth/signup",
+		bytes.NewBufferString(`{"username":"pilot-one","email":"pilot@example.com","password":"correct horse"}`))
+	signupResponse := httptest.NewRecorder()
+	router.New(controller).ServeHTTP(signupResponse, signup)
+	if signupResponse.Code != http.StatusCreated {
+		t.Fatalf("signup status %d, body %s", signupResponse.Code, signupResponse.Body.String())
+	}
+	var created struct {
+		Token string `json:"token"`
+		User  struct {
+			Username string `json:"username"`
+			Email    string `json:"email"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(signupResponse.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Token == "" || created.User.Username != "pilot-one" || created.User.Email != "pilot@example.com" {
+		t.Fatalf("unexpected signup response: %#v", created)
+	}
+
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		bytes.NewBufferString(`{"login":"pilot@example.com","password":"correct horse"}`))
+	loginResponse := httptest.NewRecorder()
+	router.New(controller).ServeHTTP(loginResponse, login)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("login status %d, body %s", loginResponse.Code, loginResponse.Body.String())
+	}
+
+	wrongPassword := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		bytes.NewBufferString(`{"login":"pilot-one","password":"wrong password"}`))
+	wrongResponse := httptest.NewRecorder()
+	router.New(controller).ServeHTTP(wrongResponse, wrongPassword)
+	if wrongResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password status %d, body %s", wrongResponse.Code, wrongResponse.Body.String())
+	}
+}
+
+func TestAuthSignupRejectsDuplicateIdentity(t *testing.T) {
+	controller, _ := setupControllerTest(t)
+	body := `{"username":"pilot-one","email":"pilot@example.com","password":"correct horse"}`
+	first := httptest.NewRecorder()
+	router.New(controller).ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/api/auth/signup", bytes.NewBufferString(body)))
+	second := httptest.NewRecorder()
+	router.New(controller).ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/api/auth/signup", bytes.NewBufferString(body)))
+	if first.Code != http.StatusCreated || second.Code != http.StatusConflict {
+		t.Fatalf("signup statuses: first=%d second=%d", first.Code, second.Code)
 	}
 }

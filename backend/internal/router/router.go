@@ -9,6 +9,8 @@ import (
 func New(c *controller.Controller) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", c.Health)
+	mux.HandleFunc("/api/auth/signup", c.Signup)
+	mux.HandleFunc("/api/auth/login", c.Login)
 	mux.HandleFunc("/api/units", c.Units)
 	mux.HandleFunc("/api/tactics-cards", c.TacticsCards)
 	mux.HandleFunc("/api/squads", c.Squads)

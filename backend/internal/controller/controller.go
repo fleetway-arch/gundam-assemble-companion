@@ -1,12 +1,18 @@
 package controller
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"strings"
+	"time"
 
+	"gundam-assemble-companion/backend/internal/auth"
 	"gundam-assemble-companion/backend/internal/deckrules"
 	"gundam-assemble-companion/backend/internal/model"
 	"gundam-assemble-companion/backend/internal/repository"
@@ -14,6 +20,164 @@ import (
 
 type Controller struct {
 	repo repository.Repository
+}
+
+type authRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
+type authResponse struct {
+	Token     string     `json:"token"`
+	ExpiresAt time.Time  `json:"expiresAt"`
+	User      model.User `json:"user"`
+}
+
+func (c *Controller) Signup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var request authRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeErrorStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	request.Username = strings.ToLower(strings.TrimSpace(request.Username))
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	if err := validateSignup(request); err != nil {
+		writeErrorStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	passwordHash, err := auth.HashPassword(request.Password)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	userID, err := newID()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	user := model.User{ID: userID, Username: request.Username, Email: request.Email}
+	if err := c.repo.CreateUser(r.Context(), user, passwordHash); err != nil {
+		if errors.Is(err, repository.ErrUserExists) {
+			writeErrorStatus(w, http.StatusConflict, errors.New("username or email is already registered"))
+			return
+		}
+		writeError(w, err)
+		return
+	}
+	response, err := c.createSession(r, user)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, response)
+}
+
+func (c *Controller) Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+
+	var request authRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeErrorStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	login := strings.TrimSpace(request.Login)
+	if login == "" {
+		login = request.Username
+	}
+	if login == "" {
+		login = request.Email
+	}
+	login = strings.ToLower(login)
+	if login == "" || request.Password == "" {
+		writeErrorStatus(w, http.StatusBadRequest, errors.New("login and password are required"))
+		return
+	}
+	user, passwordHash, err := c.repo.FindUserByLogin(r.Context(), login)
+	if err != nil {
+		writeErrorStatus(w, http.StatusUnauthorized, errors.New("invalid login or password"))
+		return
+	}
+	valid, err := auth.VerifyPassword(passwordHash, request.Password)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !valid {
+		writeErrorStatus(w, http.StatusUnauthorized, errors.New("invalid login or password"))
+		return
+	}
+	response, err := c.createSession(r, user)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (c *Controller) requireUser(w http.ResponseWriter, r *http.Request) (model.User, bool) {
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) || strings.TrimSpace(strings.TrimPrefix(header, prefix)) == "" {
+		writeErrorStatus(w, http.StatusUnauthorized, errors.New("authentication required"))
+		return model.User{}, false
+	}
+	user, err := c.repo.FindUserBySession(r.Context(), strings.TrimSpace(strings.TrimPrefix(header, prefix)))
+	if err != nil {
+		writeErrorStatus(w, http.StatusUnauthorized, errors.New("authentication required"))
+		return model.User{}, false
+	}
+	return user, true
+}
+
+func (c *Controller) createSession(r *http.Request, user model.User) (authResponse, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return authResponse{}, err
+	}
+	token := hex.EncodeToString(tokenBytes)
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
+	if err := c.repo.CreateSession(r.Context(), token, user.ID, expiresAt); err != nil {
+		return authResponse{}, err
+	}
+	return authResponse{Token: token, ExpiresAt: expiresAt, User: user}, nil
+}
+
+func newID() (string, error) {
+	var bytes [16]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return "", fmt.Errorf("generate user id: %w", err)
+	}
+	return hex.EncodeToString(bytes[:]), nil
+}
+
+func validateSignup(request authRequest) error {
+	if len(request.Username) < 3 || len(request.Username) > 32 {
+		return errors.New("username must be between 3 and 32 characters")
+	}
+	for _, character := range request.Username {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' {
+			return errors.New("username may contain only letters, numbers, underscores, and hyphens")
+		}
+	}
+	parsedEmail, err := mail.ParseAddress(request.Email)
+	if err != nil || parsedEmail.Address != request.Email || len(request.Email) > 254 {
+		return errors.New("email must be valid")
+	}
+	if len(request.Password) < 8 || len(request.Password) > 128 {
+		return errors.New("password must be between 8 and 128 characters")
+	}
+	return nil
 }
 
 func New(repo repository.Repository) *Controller {
@@ -71,9 +235,13 @@ func (c *Controller) TacticsCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Controller) Squads(w http.ResponseWriter, r *http.Request) {
+	user, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		squads, err := c.repo.ListSquads(r.Context())
+		squads, err := c.repo.ListSquads(r.Context(), user.ID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -89,7 +257,7 @@ func (c *Controller) Squads(w http.ResponseWriter, r *http.Request) {
 			writeErrorStatus(w, http.StatusBadRequest, err)
 			return
 		}
-		saved, err := c.repo.UpsertSquad(r.Context(), squad)
+		saved, err := c.repo.UpsertSquad(r.Context(), squad, user.ID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -101,15 +269,19 @@ func (c *Controller) Squads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Controller) Squad(w http.ResponseWriter, r *http.Request) {
+	user, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/deck") {
-		c.SquadDeck(w, r)
+		c.squadDeck(w, r, user.ID)
 		return
 	}
 	if r.Method != http.MethodDelete {
 		methodNotAllowed(w)
 		return
 	}
-	err := c.repo.DeleteSquad(r.Context(), strings.TrimPrefix(r.URL.Path, "/api/squads/"))
+	err := c.repo.DeleteSquad(r.Context(), strings.TrimPrefix(r.URL.Path, "/api/squads/"), user.ID)
 	if err != nil {
 		writeErrorStatus(w, http.StatusNotFound, err)
 		return
@@ -118,6 +290,14 @@ func (c *Controller) Squad(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Controller) SquadDeck(w http.ResponseWriter, r *http.Request) {
+	user, ok := c.requireUser(w, r)
+	if !ok {
+		return
+	}
+	c.squadDeck(w, r, user.ID)
+}
+
+func (c *Controller) squadDeck(w http.ResponseWriter, r *http.Request, userID string) {
 	squadID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/squads/"), "/deck")
 	if err := validateID(squadID); err != nil {
 		writeErrorStatus(w, http.StatusBadRequest, err)
@@ -126,7 +306,7 @@ func (c *Controller) SquadDeck(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		deck, err := c.repo.GetSquadDeck(r.Context(), squadID)
+		deck, err := c.repo.GetSquadDeck(r.Context(), squadID, userID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -143,7 +323,7 @@ func (c *Controller) SquadDeck(w http.ResponseWriter, r *http.Request) {
 			writeErrorStatus(w, http.StatusBadRequest, err)
 			return
 		}
-		squad, err := c.repo.GetSquad(r.Context(), squadID)
+		squad, err := c.repo.GetSquad(r.Context(), squadID, userID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_server_error"})
 			return
@@ -182,7 +362,7 @@ func (c *Controller) SquadDeck(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		saved, err := c.repo.UpsertSquadDeck(r.Context(), deck)
+		saved, err := c.repo.UpsertSquadDeck(r.Context(), deck, userID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_server_error"})
 			return
