@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS units (
 
 CREATE TABLE IF NOT EXISTS squads (
   id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
   target_size INTEGER NOT NULL DEFAULT 3 CHECK (target_size IN (3, 5)),
   members TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(members)),

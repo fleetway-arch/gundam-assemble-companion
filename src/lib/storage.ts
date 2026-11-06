@@ -1,5 +1,6 @@
 import type { Unit, Squad } from '@/types/units';
 import { API_BASE } from '@/services/api';
+import { clearAuthSession, getAuthToken } from '@/services/auth';
 
 export type BackendMode = 'api';
 
@@ -12,10 +13,16 @@ interface Repo {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
+  if (response.status === 401) clearAuthSession();
   if (!response.ok) {
     let message = `Request failed (${response.status}).`;
     try {

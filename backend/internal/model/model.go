@@ -31,3 +31,9 @@ type SquadDeck struct {
 	CardIDs       []string          `json:"cardIds"`
 	CardUnitLinks map[string]string `json:"cardUnitLinks"`
 }
+
+type User struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}

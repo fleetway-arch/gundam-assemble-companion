@@ -19,6 +19,7 @@ import {
 import type { Squad, Unit, Weapon } from '@/types/units';
 import type { SquadDeck, TacticsCard } from '@/types/tactics';
 import { genId, storage } from '@/lib/storage';
+import { clearAuthSession, getCurrentUser, login, signup, type AuthUser } from '@/services/auth';
 import { deckRepository } from '@/services/decks';
 import { tacticsRepository } from '@/services';
 import { validateDeck } from '@/utils/deckValidation';
@@ -40,6 +41,14 @@ const search = ref('');
 const deck = ref<SquadDeck>(makeDeck(''));
 type ThemeMode = 'dark' | 'light' | 'system';
 const themeMode = ref<ThemeMode>('system');
+const currentUser = ref<AuthUser | null>(null);
+const authMode = ref<'login' | 'signup'>('login');
+const authUsername = ref('');
+const authEmail = ref('');
+const authLogin = ref('');
+const authPassword = ref('');
+const authLoading = ref(false);
+const authError = ref('');
 
 const allUnits = computed(() => units.value);
 const selectedSquad = computed(() => squads.value.find((s) => s.id === selectedSquadId.value) ?? null);
@@ -64,7 +73,9 @@ onMounted(() => {
   if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'system') {
     themeMode.value = savedTheme;
   }
-  void load();
+  currentUser.value = getCurrentUser();
+  if (currentUser.value) void load();
+  else loading.value = false;
 });
 
 function setTheme(mode: ThemeMode) {
@@ -92,9 +103,39 @@ async function load() {
     cards.value = loadedCards;
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'Failed to load the companion database.';
+    if (error.value.includes('(401)') || error.value.toLowerCase().includes('unauthorized')) {
+      logout();
+    }
   } finally {
     loading.value = false;
   }
+}
+
+async function submitAuth() {
+    authLoading.value = true;
+    authError.value = '';
+    try {
+      currentUser.value = authMode.value === 'login'
+        ? await login(authLogin.value, authPassword.value)
+        : await signup(authUsername.value, authEmail.value, authPassword.value);
+      authPassword.value = '';
+      authLogin.value = '';
+      authUsername.value = '';
+      authEmail.value = '';
+      await load();
+    } catch (reason) {
+      authError.value = reason instanceof Error ? reason.message : 'Authentication failed.';
+    } finally {
+      authLoading.value = false;
+    }
+}
+
+function logout() {
+    clearAuthSession();
+    currentUser.value = null;
+    squads.value = [];
+    selectedSquadId.value = null;
+    showDeck.value = false;
 }
 
 function makeDeck(squadId: string): SquadDeck {
@@ -213,7 +254,7 @@ function readValue(event: Event) {
             <small class="text-[10px] text-cyan-glow/80 tracking-[0.3em] uppercase font-mono">Companion // VUE</small>
           </span>
         </button>
-        <nav class="hidden sm:flex items-center gap-1">
+        <nav v-if="currentUser" class="hidden sm:flex items-center gap-1">
           <span class="px-3 py-1.5 text-cream bg-oxblood-600 border border-oxblood-400 text-sm flex items-center gap-1.5">
             <Users :size="16" /> My Squads
           </span>
@@ -228,8 +269,14 @@ function readValue(event: Event) {
               <option value="light">Light</option>
             </select>
           </label>
+          <span class="ml-2 text-xs text-slate-400">{{ currentUser.username }}</span>
+          <button class="btn-ghost text-xs" @click="logout">Log out</button>
         </nav>
-        <label class="theme-picker sm:hidden" title="Color theme">
+        <div v-if="currentUser" class="flex items-center gap-2 sm:hidden">
+          <span class="text-xs text-slate-400">{{ currentUser.username }}</span>
+          <button class="btn-ghost text-xs" @click="logout">Log out</button>
+        </div>
+        <label v-if="currentUser" class="theme-picker sm:hidden" title="Color theme">
           <component :is="themeIcon" :size="15" />
           <select v-model="themeMode" @change="setTheme(themeMode)" aria-label="Color theme">
             <option value="system">System</option>
@@ -241,6 +288,28 @@ function readValue(event: Event) {
     </header>
 
     <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+      <div v-if="!currentUser" class="max-w-md mx-auto mt-8 hud-panel hud-edge p-6">
+        <div class="text-center mb-6">
+          <Shield :size="30" class="mx-auto mb-3 text-cyan-glow" />
+          <p class="stat-label text-cyan-glow">Command // Access</p>
+          <h1 class="text-2xl font-bold text-cream">{{ authMode === 'login' ? 'Welcome back, pilot' : 'Create your pilot account' }}</h1>
+        </div>
+        <form class="space-y-4" @submit.prevent="submitAuth">
+          <input v-if="authMode === 'signup'" v-model="authUsername" class="input" required minlength="3" maxlength="32" autocomplete="username" placeholder="Username" />
+          <input v-if="authMode === 'signup'" v-model="authEmail" class="input" required type="email" autocomplete="email" placeholder="Email" />
+          <input v-if="authMode === 'login'" v-model="authLogin" class="input" required autocomplete="username" placeholder="Username or email" />
+          <input v-model="authPassword" class="input" required minlength="8" maxlength="128" type="password" autocomplete="current-password" placeholder="Password" />
+          <p v-if="authError" class="text-sm text-red-200">{{ authError }}</p>
+          <button class="btn-primary w-full" :disabled="authLoading">
+            {{ authLoading ? 'Connecting…' : authMode === 'login' ? 'Log in' : 'Sign up' }}
+          </button>
+        </form>
+        <button class="btn-ghost w-full mt-3" @click="authMode = authMode === 'login' ? 'signup' : 'login'; authError = ''">
+          {{ authMode === 'login' ? 'Need an account? Sign up' : 'Already registered? Log in' }}
+        </button>
+      </div>
+
+      <template v-else>
       <div v-if="loading" class="hud-panel p-8 text-center text-slate-400">Loading companion database…</div>
       <div v-else-if="error" class="hud-panel-orange p-5 text-red-100">{{ error }}</div>
 
@@ -344,6 +413,7 @@ function readValue(event: Event) {
           </div>
         </section>
         </Transition>
+      </template>
       </template>
     </main>
 
